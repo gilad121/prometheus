@@ -54,6 +54,7 @@ import {
   async function writeMsg(connection: Connection, payer: Keypair, programId: PublicKey, msg: string): Promise<void> {  
     // Create the instruction data
     const instructionData = createProInstructionData(msg);
+    console.log("msg: ", msg);
     console.log("instructionData: ", instructionData);
     console.log("instructionData length: ", instructionData.length);
   
@@ -130,17 +131,17 @@ import {
     // Connect to the cluster
     const connection = new Connection("http://localhost:8899", "confirmed");
     // const keypairPath = '/home/gk/.config/solana/id.json';
-    const keypairPath = '/home/gk/.config/solana/id.json';
+    const keypairPath = '/home/gk/.config/solana/client_id.json';
     const payer = loadKeypairFromFile(keypairPath);
 
     // Program ID as per your Solana program
     const programId = new PublicKey("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
   
-    await writeMsg(connection, payer, programId, "blah1 blah2 blah3 blah4 blah5");
+    await writeMsg(connection, payer, programId, "how are you mate?");
 
     console.log("before sleep");
     const sleep = promisify(setTimeout);
-    await sleep(2000);
+    await sleep(10000);
     console.log("after sleep");
 
     await readDataFromPDA(connection, payer, programId);

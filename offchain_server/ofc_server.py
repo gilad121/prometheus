@@ -4,7 +4,7 @@ import json
 import re
 import tempfile
 import subprocess
-
+from openai import AsyncOpenAI, OpenAI
 
 PROGRAM_ID = "HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej"
 OFCS_CLIENT_PATH = "typescript_ofc_client/ofcs_client.js"
@@ -17,6 +17,54 @@ class Event:
 # define async queue
 req_queue = asyncio.Queue()
 res_queue = asyncio.Queue()
+
+
+API_KEY = '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'
+# gpt_client = AsyncOpenAI(api_key=API_KEY)
+
+
+# async def chat_with_gpt(prompt="Tell me a short funny story", model="gpt-3.5-turbo", temperature=0.75, max_tokens=100):
+#     print("chat_with_gpt")
+#     try:
+#         chat_completion = await gpt_client.chat.completions.create(
+#             messages=[
+#                 {
+#                     "role": "user",
+#                     "content": prompt,
+#                 }
+#             ],
+#             model=model,
+#             temperature=temperature,
+#             max_tokens=max_tokens,
+#         )
+#         print("[chat_with_gpt] chat_completion.choices[0].message.content = {}".format(chat_completion.choices[0].message.content))
+#         return chat_completion.choices[0].message.content
+#     except Exception as e:
+#         # return str(e)
+#         return "fucked"
+
+
+def chat_with_gpt(prompt="Tell me a joke", model="gpt-3.5-turbo", temperature=0.75, max_tokens=100):
+    print("chat_with_gpt")
+    try:
+        client = OpenAI(api_key=API_KEY)
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        print("[chat_with_gpt] chat_completion.choices[0].message.content = {}".format(chat_completion.choices[0].message.content))
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        # return str(e)
+        return "fucked"
+
 
 # async def subscribe_to_program_logs(program_id,
 #                                     rpc_url="wss://muddy-twilight-asphalt.solana-devnet.quiknode.pro/7a968c5d6d32fde5ae3cdc4af11606e129d0debb/"):
@@ -94,11 +142,17 @@ async def get_request_from_json(data):
 
 async def run_llm(req):
     print("run_llm")
+    print("[run_llm] req.data = {}".format(req.data))
     # TODO: run llm with data
-    output = req.data + " (mfucker)"
+
+    # Run the sync function in a separate thread - required? (TODO)
+    output = await asyncio.get_running_loop().run_in_executor(None, chat_with_gpt, req.data)
+    # output = chat_with_gpt(req.data)
+    print("[run_llm] output = {}".format(output))
+    # output = req.data + " (mfucker)"
     res = Event(req.pda, output)
     # add response to async queue of responses to be sent
-    print("[run_llm] adding response to queue, pda = {}, data = {}", res.pda, res.data)
+    print("[run_llm] adding response to queue, pda = {}, data = {}".format(res.pda, res.data))
     await res_queue.put(res)
 
 
@@ -120,12 +174,16 @@ async def write_responses_loop():
         print("[write_responses_loop] got response from res_queue")
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=True) as temp_file:
             temp_file_path = temp_file.name
-            print("[write_responses_loop] writing to file {}", temp_file_path)
+            print("[write_responses_loop] writing to file {}".format(temp_file_path))
             temp_file.write(f"{res.pda}\n{res.data}".encode())
             temp_file.flush()
+
+            # print to the screen the content of temp_file
+            with open(temp_file_path, "r") as f:
+                print("[write_response_loop] file content = {}".format(f.read()))
         
             command = ["node", OFCS_CLIENT_PATH, temp_file_path]
-            print("[write_responses_loop] running {}", command)
+            print("[write_responses_loop] running {}".format(command))
             process = await asyncio.create_subprocess_exec(*command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
             # Wait for the process to complete
@@ -134,7 +192,7 @@ async def write_responses_loop():
             
             # Get the output from the Node.js program
             output = stdout.decode().strip()
-            print("[write_responses_loop] node program output = {}", output)
+            print("[write_responses_loop] node program output = {}".format(output))
 
 
 async def main():
@@ -159,3 +217,5 @@ asyncio.run(main())
 # subfunctions
 # classes
 # beautify
+
+# mongodb for conversation history? save context?

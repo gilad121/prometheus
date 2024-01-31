@@ -34,7 +34,7 @@ import {
     });
 
     // print instructionData content
-    console.log("1 data: ", data);
+    console.log("[createProInstructionData] data: ", data);
 
     // 0 = server message (response)
     const variant = 1;
@@ -42,7 +42,7 @@ import {
     variantBuffer.writeInt8(variant);
 
     const instructionDataBuffer = Buffer.from(borsh.serialize(ProMsgSchema, instructionData));
-    console.log("1 instructionDataBuffer: ", instructionDataBuffer);
+    console.log("[createProInstructionData] instructionDataBuffer: ", instructionDataBuffer);
 
     const buffer = Buffer.concat([variantBuffer, instructionDataBuffer]);
 
@@ -53,8 +53,8 @@ import {
   async function writeMsg(connection: Connection, payer: Keypair, programId: PublicKey, pda: PublicKey, msg: string): Promise<void> {  
     // Create the instruction data
     const instructionData = createProInstructionData(msg);
-    console.log("instructionData: ", instructionData);
-    console.log("instructionData length: ", instructionData.length);
+    console.log("[writeMsg] instructionData: ", instructionData);
+    console.log("[writeMsg] instructionData length: ", instructionData.length);
 
     // Create the transaction instruction
     const writeMsgInstruction = new TransactionInstruction({
@@ -70,8 +70,15 @@ import {
     // Create the transaction
     const transaction = new Transaction().add(writeMsgInstruction);
   
-    // Sign and send the transaction
-    await sendAndConfirmTransaction(connection, transaction, [payer]);
+    console.log("[writeMsg] before sendAndConfirmTransaction");
+
+    try {
+      // Sign and send the transaction
+      let signature = await sendAndConfirmTransaction(connection, transaction, [payer]);
+      console.log("[writeMsg] signature: ", signature);
+    } catch (err) {
+      console.log("[writeMsg] failed sending transaction, error: ", err);
+    }
   }
 
   // Read the data from the PDA and print to the screen
@@ -104,9 +111,9 @@ import {
     const secretKeyString = fs.readFileSync(filePath, { encoding: 'utf8' });
     const secretKey = Uint8Array.from(JSON.parse(secretKeyString));
     // log keypair
-    console.log('secretKey');
+    // console.log('secretKey');
     // print secret key as string of bytes in ascii
-    console.log(secretKey.toString());
+    // console.log(secretKey.toString());
     console.log();
     // print hexadecimal letters representation of secretKey
     return Keypair.fromSecretKey(secretKey);
@@ -141,6 +148,12 @@ async function readAllEvents(connection: Connection, programId: PublicKey): Prom
 }
   
 
+function getFileContent(filePath: string): string[] {
+  const fileContent = fs.readFileSync(filePath, 'utf8').split('\n');
+  const firstLine = fileContent.shift() || '';
+  return [firstLine, fileContent.join('\n')];
+}
+
   (async () => {
     // Connect to the cluster
     const connection = new Connection("http://localhost:8899", "confirmed");
@@ -153,7 +166,7 @@ async function readAllEvents(connection: Connection, programId: PublicKey): Prom
     if (process.argv.length >= 3) {
       // Read the file path from command line argument
       const filePath = process.argv[2];
-      const fileContent = fs.readFileSync(filePath, 'utf8').split('\n');
+      const fileContent = getFileContent(filePath);
       const pda = new PublicKey(fileContent[0]);
       const data = fileContent[1];
 
