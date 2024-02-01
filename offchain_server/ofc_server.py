@@ -4,6 +4,7 @@ import json
 import re
 import tempfile
 import subprocess
+import solana
 from openai import AsyncOpenAI, OpenAI
 
 PROGRAM_ID = "HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej"
@@ -92,52 +93,69 @@ async def read_requests_loop(rpc_url="ws://127.0.0.1:8900"):
             response = await websocket.recv()
             print(f"[read_requests_loop] Received event")
             response_data = json.loads(response)
-            if "params" in response_data and "result" in response_data["params"]:
-                await process_log(response_data)
+            await process_log(response_data)
 
 
 async def process_log(data):
-    print("process_log")
-    with open("log.txt", "a") as f:
-        f.write(f"{data['params']['result']}\n")
+    if "params" in data and "result" in data["params"]:
+        print("[process_log]")
 
-    with open("nino.json", "a") as f:
-        json.dump(data, f)
-        f.write("\n")
+        with open("json_log.txt", "a") as f:
+            json.dump(data, f)
+            f.write("\n")
 
-    req = await get_request_from_json(data)
-    if req is not None:
-        print("[process_log] pda = {}, data = {}", req.pda, req.data)
-        # add req to async queue of requests to be processed
-        await req_queue.put(req)
+        req = await get_request_from_json(data)
+        if req is not None:
+            print("[process_log] pda = {}, data = {}", req.pda, req.data)
+            # add req to async queue of requests to be processed
+            await req_queue.put(req)
+
+
+# async?
+def read_data_from_pda(pda):
+    print("[read_data_from_pda], pda = {}".format(pda))
+    # Initialize Solana RPC client
+    client = solana.rpc.api.Client("https://localhost:8899")
+
+    # Convert the string address to a PublicKey
+    pda_public_key = solana.publickey.PublicKey(pda)
+
+    # Fetch the account data
+    response = client.get_account_info(pda_public_key)
+
+    if response['result']['value'] is not None:
+        data = response['result']['value']['data'][0]
+        print("[read_data_from_pda] data:", data)
+    else:
+        print("[read_data_from_pda] Account not found or no data.")
 
 
 # TODO: make this more efficient, first filtering out the logs of the whole json (so we wouldn't need to search over the whole json)
-async def get_request_from_json_str_search(data):
+async def get_request_from_json(data):
     # find a way to do it and obtain data no matter what it contains (e.g. spaces)
-    print("get_request_from_json")
-    match = re.search(r'action:request pda:(\w+) data:(\w+)', str(data))
+    print("[get_request_from_json]")
+    match = re.search(r'action:request pda:(\w+)', str(data))
     if match:
         pda = match.group(1)
-        data = match.group(2)
-        print("[get_request_from_json] pda = {}, data = {}".format(pda, data))
+        print("[get_request_from_json] pda = {}".format(pda))
+        data = read_data_from_pda(pda)
         return Event(pda, data)
     else:
         print("no match :()")
         return None
     
-async def get_request_from_json(data):
-    print("get_request_from_json")
-    logs = data['params']['result']['value']['logs']
-    for log in logs:
-        if "action:request" in log:
-            print("[get_request_from_json] log = {}".format(log))
-            # Program log: action:request pda:<pda> data:<data>
-            pda = log[log.index("pda:") + len("pda:"):].split()[0]
-            data = log[log.index("data:") + len("data:"):]
-            print("[get_request_from_json] pda = {}, data = {}".format(pda, data))
-            return Event(pda, data)
-    return None
+# async def get_request_from_json(data):
+#     print("get_request_from_json")
+#     logs = data['params']['result']['value']['logs']
+#     for log in logs:
+#         if "action:request" in log:
+#             print("[get_request_from_json] log = {}".format(log))
+#             # Program log: action:request pda:<pda> data:<data>
+#             pda = log[log.index("pda:") + len("pda:"):].split()[0]
+#             data = log[log.index("data:") + len("data:"):]
+#             print("[get_request_from_json] pda = {}, data = {}".format(pda, data))
+#             return Event(pda, data)
+#     return None
 
 
 async def run_llm(req):
@@ -217,5 +235,8 @@ asyncio.run(main())
 # subfunctions
 # classes
 # beautify
+# encrypt (both request and response)
 
 # mongodb for conversation history? save context?
+
+# keep state in terms of conversation with llm
