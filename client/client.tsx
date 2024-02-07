@@ -193,7 +193,7 @@ import {
 
   function loadKeypairFromFile(filePath: string): Keypair {
     const secretKeyString = fs.readFileSync(filePath, { encoding: 'utf8' });
-    const secretKey = Uint8Array.from(JSON.parse(secretKeyString));
+    const secretKey = Uint8Array.from(JSON.parse(secretKeyString)); 
     return Keypair.fromSecretKey(secretKey);
   }
   
@@ -209,7 +209,7 @@ import {
   const action = args[0];
 
   if (action === 'write') {
-    await sendMsg(connection, payer, programId, "tell me a short funny story");
+    await sendMsg(connection, payer, programId, "tell me shortly about israel");
   } else if (action === 'read') {
     await readDataFromPDA(connection, payer, programId);
   } else {
@@ -217,17 +217,3 @@ import {
   }
 
 })();
-
-
-/*
-1.2 short summary
-- seemd like sending chunked requests works. Only checked for 1 chunk for now
-- TODO:
-  - check for multiple chunks
-  - write code in server for reading (reading from the pda (tested with function in this file) seems to work fine)
-  - write code in server for sending response in chunks
-  - write code for reading in client (using websocket (using the "mention" param, passing the pda)
-    we can get all logs of transactions realted to our pda. the program will write a action:response log and then
-    we will read the data from the pda)
-      - a different solution will be polling on the pda, and adding a boolean there to be changed when response is received
-*/ 
