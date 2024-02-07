@@ -13,7 +13,7 @@ import {
   import { promisify } from 'util';
   import process from 'process';
 
-  const CHUNK_SZ = 1024; // Define CHUNK_SZ as const
+  const CHUNK_SZ = 100; // Define CHUNK_SZ as const
   
   class ProMsg {
     data!: string;
@@ -145,6 +145,8 @@ import {
       [payer.publicKey.toBuffer()],
       programId
     );
+
+    console.log("pda: ", pda.toBase58());
   
     const msgData = new ProMsg({
       data: msg
@@ -207,7 +209,7 @@ import {
   const action = args[0];
 
   if (action === 'write') {
-    await sendMsg(connection, payer, programId, "say hi");
+    await sendMsg(connection, payer, programId, "tell me a short funny story");
   } else if (action === 'read') {
     await readDataFromPDA(connection, payer, programId);
   } else {

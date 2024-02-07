@@ -10,149 +10,186 @@ import {
   import * as borsh from "borsh";
   import * as fs from "fs";
   import * as path from "path";
+  import { promisify } from 'util';
+  import process from 'process';
 
+  const CHUNK_SZ = 100; // Define CHUNK_SZ as const
   
-  // Define the structure of the ProMsg as per the Rust program
   class ProMsg {
-    data! : string;
+    data!: string;
+    static schema: Map<any, any> = new Map([
+      [ProMsg, { kind: 'struct', fields: [['data', 'string']] }],
+    ]);
+
     constructor(fields: { data: string }) {
       if (fields) {
         this.data = fields.data;
       }
     }
   }
+
+  class DataChunk {
+      index: number;
+      totalChunks: number;
+      size: number;
+      data: Uint8Array;
   
-  // Define the schema for serialization
-  const ProMsgSchema = new Map([
-    [ProMsg, { kind: 'struct', fields: [['data', 'string']] }],
-  ]);
+      constructor(index: number, totalChunks: number, data: Uint8Array) {
+        this.index = index;
+        this.totalChunks = totalChunks;
+        this.size = data.length;
+        this.data = data;
+      }
   
-  // Define the instruction data according to the Rust program's expected format
-  function createProInstructionData(data: string): Buffer {
-    const instructionData = new ProMsg({
-      data
-    });
-
-    // print instructionData content
-    console.log("[createProInstructionData] data: ", data);
-
-    // 0 = server message (response)
-    const variant = 1;
-    const variantBuffer = Buffer.alloc(1);
-    variantBuffer.writeInt8(variant);
-
-    const instructionDataBuffer = Buffer.from(borsh.serialize(ProMsgSchema, instructionData));
-    console.log("[createProInstructionData] instructionDataBuffer: ", instructionDataBuffer);
-
-    const buffer = Buffer.concat([variantBuffer, instructionDataBuffer]);
-
-    return buffer;
+      serialize(): Buffer {
+        const DataChunkSchema = new Map([
+          [DataChunk, { kind: 'struct', fields: [['index', 'u32'], ['totalChunks', 'u32'], ['size', 'u32'], ['data', ['u8']]] }],
+        ]);
+        // console.log("[DataChunk.serialize] this: ", this);
+        return Buffer.from(borsh.serialize(DataChunkSchema, this));
+      }
   }
   
-  // Main function to log the mood
-  async function writeMsg(connection: Connection, payer: Keypair, programId: PublicKey, pda: PublicKey, msg: string): Promise<void> {  
-    // Create the instruction data
-    const instructionData = createProInstructionData(msg);
-    console.log("[writeMsg] instructionData: ", instructionData);
-    console.log("[writeMsg] instructionData length: ", instructionData.length);
 
-    // Create the transaction instruction
-    const writeMsgInstruction = new TransactionInstruction({
+  async function sendChunk(connection: Connection, chunk: DataChunk, programId: PublicKey, payer: Keypair, pda: PublicKey) {
+    // console.log("[sendChunk] chunk: ", chunk);
+
+    const serializedData = chunk.serialize();
+
+    // console.log("[sendChunk] serializedData: ", serializedData);
+    const insnData = createProInstructionData(serializedData);
+    // console.log("[sendChunk] insnData: ", insnData);
+
+    const writeMsgChunkInstruction = new TransactionInstruction({
       keys: [
         { pubkey: payer.publicKey, isSigner: true, isWritable: false },
         { pubkey: pda, isSigner: false, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId,
-      data: instructionData, // Data serialized in Borsh
+      data: insnData,
     });
   
-    // Create the transaction
-    const transaction = new Transaction().add(writeMsgInstruction);
-  
-    console.log("[writeMsg] before sendAndConfirmTransaction");
+    const transaction = new Transaction().add(writeMsgChunkInstruction);
 
-    try {
-      // Sign and send the transaction
-      let signature = await sendAndConfirmTransaction(connection, transaction, [payer]);
-      console.log("[writeMsg] signature: ", signature);
-    } catch (err) {
-      console.log("[writeMsg] failed sending transaction, error: ", err);
+    // console.log("[sendChunk] transaction: ", transaction);
+    console.log("[sendChunk] sending transaction");
+    await sendAndConfirmTransaction(connection, transaction, [payer]);
+    console.log("[sendChunk] transaction sent");
+  }
+
+
+  function splitIntoChunks(data: Uint8Array, maxSize: number): DataChunk[] {
+    // console.log("[splitIntoChunks] data: ", data);
+    const chunks: DataChunk[] = [];
+    for (let offset = 0; offset < data.length; offset += maxSize) {
+      // console.log("[splitIntoChunks] offset: ", offset);
+      const chunkData = data.slice(offset, offset + maxSize);
+      // console.log("[splitIntoChunks] chunkData: ", chunkData);
+      chunks.push(new DataChunk(chunks.length, Math.ceil(data.length / maxSize), chunkData));
+      // console.log("[splitIntoChunks] chunks: ", chunks);
+    }
+    return chunks;
+  }
+
+
+  function createProInstructionData(data: Buffer): Buffer {
+    // print instructionData content
+    console.log("[createProInstructionData]");
+    // console.log("[createProInstructionData] data: ", data);
+
+    // 3 - chunked response
+    const variant = 3;
+    const variantBuffer = Buffer.alloc(1);
+    variantBuffer.writeInt8(variant);
+
+    const buffer = Buffer.concat([variantBuffer, data]);
+
+    return buffer;
+  }
+
+
+  function serializeData(data: string): Buffer {
+    const instructionData = new ProMsg({
+      data: data
+    });
+
+    // print instructionData content
+    // console.log("[serializeData] data: ", data);
+
+    // commented for testing purposes
+    const serializedData = Buffer.from(borsh.serialize(ProMsg.schema, instructionData));
+    // const serializedData = Buffer.from(data);
+    // console.log("[serializeData] serialized data: ", serializedData);
+
+    // TODO: change to Int32
+    const size = serializedData.length;
+    const sizeBuffer = Buffer.alloc(4);
+    sizeBuffer.writeUInt32LE(size);
+    // console.log("[serializeData] serialized size: ", size);
+
+    const buffer = Buffer.concat([sizeBuffer, serializedData]);
+
+    return buffer;
+  }
+  
+
+  async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey, pda: PublicKey, msg: string, ): Promise<void> {  
+    console.log("[sendMsg]");
+
+    const serializedData = serializeData(msg);
+    const chunks = splitIntoChunks(serializedData, CHUNK_SZ);
+
+    for (const chunk of chunks) {
+        await sendChunk(connection, chunk, programId, payer, pda);
     }
   }
 
-  // Read the data from the PDA and print to the screen
-  async function readDataFromPDA(connection: Connection, payer: Keypair, programId: PublicKey, pda: PublicKey): Promise<void> {
-    console.log("pda: ", pda.toBase58());
-    // Get the account info of the mood PDA
+
+  async function readDataFromPDA(connection: Connection, payer: Keypair, programId: PublicKey): Promise<void> {
+    const [pda, bumpSeed] = await PublicKey.findProgramAddressSync(
+        [payer.publicKey.toBuffer()],
+        programId
+    );
+
+    console.log("[readDataFromPDA] pda: ", pda.toBase58());
     const pdaAccountInfo = await connection.getAccountInfo(pda);
 
     if (pdaAccountInfo) {
         const pdaData = pdaAccountInfo.data;
-        console.log("PdaAccountInfo: ", pdaData);
+        console.log("[readDataFromPDA] PdaAccountInfo: ", pdaData);
 
-        const msgLen = pdaData[0];
-        const is_request = pdaData[1];
-        const msgContent = pdaData.slice(2, 2 + msgLen);
+        const msgLen = pdaData.readUInt32LE(0);
+        console.log("[readDataFromPDA] msg len: ", msgLen);
+        // const is_request = pdaData[1];
+        const msgContent = pdaData.slice(4, 4 + msgLen);
+        console.log("[readDataFromPDA] msg content: ", msgContent);
 
-        console.log("msg len: ", msgLen);
-        console.log("is_request: ", is_request);
-        console.log("msg content: ", msgContent);
+        // console.log("[readDataFromPDA] msg len: ", msgLen);
+        // console.log("[readDataFromPDA] is_request: ", is_request);
+        // console.log("[readDataFromPDA] msg content: ", msgContent);
 
-        const proMsg = borsh.deserialize(ProMsgSchema, ProMsg, msgContent);
-        console.log("nino 2");
-        console.log("msg data: ", proMsg.data);
+        const proMsg = borsh.deserialize(ProMsg.schema, ProMsg, msgContent);
+        console.log("[readDataFromPDA] msg data: ", proMsg.data);
     } else {
-        console.log("PDA account not found");
+        console.log("[readDataFromPDA] PDA account not found");
     }
-}
+  }
 
   function loadKeypairFromFile(filePath: string): Keypair {
     const secretKeyString = fs.readFileSync(filePath, { encoding: 'utf8' });
     const secretKey = Uint8Array.from(JSON.parse(secretKeyString));
-    // log keypair
-    // console.log('secretKey');
-    // print secret key as string of bytes in ascii
-    // console.log(secretKey.toString());
-    console.log();
-    // print hexadecimal letters representation of secretKey
     return Keypair.fromSecretKey(secretKey);
   }
 
-// Read all events happening under a specific Solana program
-async function readAllEvents(connection: Connection, programId: PublicKey): Promise<Event[]> {
-  // Find the program's accounts
-  const programAccounts = await connection.getProgramAccounts(programId);
-  // print programAccounts
-  console.log("programAccounts: ", programAccounts);
 
-  // // // Filter the accounts to only include events
-  // // const eventAccounts = programAccounts.filter((account) => {
-  // //   // Check if the account data represents an event
-  // //   // Replace this condition with your own logic to identify event accounts
-  // //   return account.data.length > 0;
-  // // });
 
-  // // Retrieve the event data for each account
-  // const events: Event[] = [];
-  // for (const account of eventAccounts) {
-  //   const eventData = account.data;
-  //   // Parse the event data and create an Event object
-  //   const event: Event = parseEventData(eventData);
-  //   events.push(event);
-  // }
-
-  // return events;
-  // return empty Promise
-  return new Promise<Event[]>(resolve => resolve([]));
-}
+  function getFileContent(filePath: string): string[] {
+    const fileContent = fs.readFileSync(filePath, 'utf8').split('\n');
+    const firstLine = fileContent.shift() || '';
+    return [firstLine, fileContent.join('\n')];
+  }
   
-
-function getFileContent(filePath: string): string[] {
-  const fileContent = fs.readFileSync(filePath, 'utf8').split('\n');
-  const firstLine = fileContent.shift() || '';
-  return [firstLine, fileContent.join('\n')];
-}
 
   (async () => {
     // Connect to the cluster
@@ -172,7 +209,7 @@ function getFileContent(filePath: string): string[] {
 
       console.log("pda: ", pda.toBase58());
       console.log("data: ", data);
-      await writeMsg(connection, payer, programId, pda, data);
+      await sendMsg(connection, payer, programId, pda, data);
     } else {
       console.log("Usage: node ofcs_client.js <path to file>");
       process.exit(1);
@@ -180,3 +217,5 @@ function getFileContent(filePath: string): string[] {
     // await readDataFromPDA(connection, payer, programId, pda);
     // await readAllEvents(connection, programId);
   })();
+
+

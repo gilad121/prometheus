@@ -19,8 +19,8 @@ use instructions::ProInstruction;
 declare_id!("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
 
 const MAX_MSG_DATA_SZ: usize = 400;
-const MAX_CHUNK_SZ: usize = 400;
-// fails for 10kb, should probably created using standalone instruction (also would be more expensive)
+const MAX_CHUNK_SZ: usize = 100;
+// fails for 10kb, should probably create using standalone instruction (also would be a more expensive one so good to separate (for user))
 // const PDA_ACCOUNT_SZ: usize = 10 * 1024;
 const PDA_ACCOUNT_SZ: usize = 5 * 1024;
 
@@ -59,6 +59,9 @@ fn process_instruction(
         // }
         ProInstruction::WriteRequestChunk { data }  => {
             write_request_chunk(program_id, accounts, data)?;
+        }
+        ProInstruction::WriteResponseChunk { data }  => {
+            write_response_chunk(program_id, accounts, data)?;
         }
     }
     Ok(())
@@ -283,6 +286,57 @@ pub fn write_request_chunk(
     // can we assume it will be ordered? (last chunk will be the last one?)
     if chunk.index == (chunk.total_chunks - 1) {
         msg!("action:request pda:{}", pda_account.key);
+    }
+
+    Ok(())
+}
+
+// TODO: split into functions
+pub fn write_response_chunk(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    chunk: DataChunk,
+) -> ProgramResult {
+    msg!("[write_request_chunk]");
+    msg!("[write_request_chunk] chunk: {:?}", chunk);
+
+    let account_info_iter = &mut accounts.iter();
+    let client_account = next_account_info(account_info_iter)?;
+    let pda_account = next_account_info(account_info_iter)?;
+    let system_program = next_account_info(account_info_iter)?;
+
+    if !client_account.is_signer {
+        msg!("[write_request_chunk] Error: client_account is not signer");
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    if chunk.size > MAX_CHUNK_SZ as u32 {
+        msg!("[write_request_chunk] Error: chunk size must not exceed {}", MAX_CHUNK_SZ);
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    if pda_account.owner != program_id {
+        msg!("pda does not exist");
+        // print pda
+        msg!("pda: {:?}", pda_account.key);
+    } else {
+        msg!("pda exists: {}", pda_account.key);
+    }
+ 
+    let offset = chunk.index * MAX_CHUNK_SZ as u32;
+    if (pda_account.data_len() as u32) < offset + chunk.size {
+        msg!("[write_request_chunk] Error: account data too small ({})", pda_account.data_len());
+        return Err(ProgramError::AccountDataTooSmall);
+    }
+    // Write chunk data to the account's data buffer at the calculated offset
+    // chunk is part of the serialized data (serialization doesnt seem to be required)
+    pda_account.try_borrow_mut_data()?[offset as usize..(offset + chunk.size) as usize]
+    .copy_from_slice(&chunk.data);
+
+    // last chunk
+    // can we assume it will be ordered? (last chunk will be the last one?)
+    if chunk.index == (chunk.total_chunks - 1) {
+        msg!("action:response pda:{}", pda_account.key);
 
     }
 

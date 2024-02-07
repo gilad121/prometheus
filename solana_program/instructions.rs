@@ -18,6 +18,9 @@ pub enum ProInstruction {
     // },
     WriteRequestChunk {
         data: DataChunk
+    },
+    WriteResponseChunk {
+        data: DataChunk
     }
 }
 
@@ -43,6 +46,10 @@ impl ProInstruction {
             //     data: payload.data,
             // },
             2 => Self::WriteRequestChunk {
+                data: payload.data,
+
+            },
+            3 => Self::WriteResponseChunk {
                 data: payload.data,
 
             },
