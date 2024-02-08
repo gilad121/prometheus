@@ -7,13 +7,26 @@ import subprocess
 import solana.rpc.api
 import borsh
 import base58
-from openai import AsyncOpenAI, OpenAI
+import openai.OpenAI
 
 
 PROGRAM_ID = "HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej"
 OFCS_CLIENT_PATH = "typescript_ofc_client/ofcs_client.js"
 API_KEY = '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'
 MAX_TOKENS = 1000
+WS_SUBSCRIBE_MSG = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "logsSubscribe",
+    "params": [
+        {
+            "mentions": [PROGRAM_ID]
+        },
+        {
+            "commitment": "confirmed"
+        }
+    ]
+}
 
 class Event:
     def __init__(self, pda: str, data: str):
@@ -38,7 +51,7 @@ def chat_with_gpt(prompt="", model="gpt-3.5-turbo", temperature=0.75, max_tokens
     if prompt == "":
         raise ValueError("Prompt cannot be empty")
     try:
-        client = OpenAI(api_key=API_KEY)
+        client = openai.OpenAI(api_key=API_KEY)
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -59,31 +72,19 @@ def chat_with_gpt(prompt="", model="gpt-3.5-turbo", temperature=0.75, max_tokens
 
 # async def subscribe_to_program_logs(program_id,
 #                                     rpc_url="wss://muddy-twilight-asphalt.solana-devnet.quiknode.pro/7a968c5d6d32fde5ae3cdc4af11606e129d0debb/"):
-async def read_requests_loop(rpc_url="ws://127.0.0.1:8900"):
+async def request_handler(rpc_url="ws://127.0.0.1:8900"):
     debug_print("[read_requests_loop]")
     async with websockets.connect(rpc_url) as websocket:
-        # Subscribe to the program
-        subscribe_message = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "logsSubscribe",
-            "params": [
-                {
-                    "mentions": [PROGRAM_ID]
-                },
-                {
-                    "commitment": "confirmed"
-                }
-            ]
-        }
-        await websocket.send(json.dumps(subscribe_message))
 
+        await websocket.send(json.dumps(WS_SUBSCRIBE_MSG))
+        
         while True:
             debug_print("[read_requests_loop] Waiting for logs...")
             data = await websocket.recv()
             debug_print(f"[read_requests_loop] Received logs")
-            data = json.loads(data)
-            await handle_logs(data)
+
+            logs = json.loads(data)
+            await handle_logs(logs)
 
 
 # TODO: change name
@@ -94,27 +95,21 @@ async def handle_logs(logs):
         if debug_mode:
             with open("logs.log", "a") as f:
                 json.dump(logs, f)
-                f.write("\n")
 
-        req = await get_request_from_logs(logs)
-        if req is not None:
+        reqs = await get_requests_from_logs(logs)
+        for req in reqs:
             debug_print("[handle_logs] adding request to queue, pda = {}, data = {}".format(req.pda, req.data))
             await req_queue.put(req)
 
 
-# TODO: make this generic to N number of occurences of "action:request" - find all and handle
-async def get_request_from_logs(logs):
-    # find a way to do it and obtain data no matter what it contains (e.g. spaces)
-    debug_print("[get_request_from_logs]")
-    match = re.search(r'action:request pda:(\w+)', str(logs))
-    if match:
+def get_requests_from_logs(logs):
+    requests = []
+    matches = re.findall(r'action:request pda:(\w+)', str(logs))
+    for match in matches:
         pda = match.group(1)
-        debug_print("[get_request_from_logs] pda = {}".format(pda))
         data = read_data_from_pda(pda)
-        return Event(pda, data)
-    else:
-        debug_print("no match :()")
-        return None
+        requests.append(Event(pda, data))
+    return requests
 
 
 def read_data_from_pda(pda):
@@ -195,7 +190,7 @@ async def write_responses_loop():
 
 async def main():
     await asyncio.gather(
-        read_requests_loop(),
+        request_handler(),
         run_llm_loop(),
         write_responses_loop()
     )
