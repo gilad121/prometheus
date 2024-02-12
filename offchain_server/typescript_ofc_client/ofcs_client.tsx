@@ -89,8 +89,8 @@ class DataChunk {
  * console.log(proInstructionData);
  */
 function createProInstructionData(data: Buffer): Buffer {
-  // 2 - chunked response
-  const variant = 3;
+  // 1 - chunked response
+  const variant = 1;
   const variantBuffer = Buffer.alloc(1);
   variantBuffer.writeInt8(variant);
 

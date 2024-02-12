@@ -89,8 +89,8 @@ class DataChunk {
  * console.log(proInstructionData);
  */
 function createProInstructionData(data: Buffer): Buffer {
-  // 2 - chunked request
-  const variant = 2;
+  // 0 - chunked request
+  const variant = 0;
   const variantBuffer = Buffer.alloc(1);
   variantBuffer.writeInt8(variant);
 
@@ -231,7 +231,7 @@ function loadKeypairFromFile(filePath: string): Keypair {
   const action = args[0];
 
   if (action === 'write') {
-    await sendMsg(connection, payer, programId, "tell me shortly about lebanon");
+    await sendMsg(connection, payer, programId, "tell me shortly about iran");
   } else if (action === 'read') {
     await readDataFromPDA(connection, payer, programId);
   } else {
