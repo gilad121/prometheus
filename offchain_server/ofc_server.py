@@ -9,8 +9,18 @@ from consts import *
 from utils import *
 
 # TODO: new client for each request vs one client for all requests ?
-
 class PdaData:
+    """
+    Represents the data stored in a Solana Program Derived Address (PDA)
+
+    Args:
+        data (bytes): the data stored in the PDA
+        serialized (bool): whether the data is serialized
+
+    Attributes:
+        data (str): the deserialized data
+        serialized (bool): whether the data is serialized
+    """
     def __init__(self, data, serialized=True):
         self._data = data
         self.serialized = serialized
@@ -31,6 +41,16 @@ class PdaData:
 
 
 class Pda:
+    """
+    Represents a Program Derived Address (PDA) in Solana
+    Used both for requests and responses
+
+    Args:
+        addr (str): the PDA address
+        data (str): the data stored in the PDA
+        client (solana.rpc.api.Client): the Solana client
+
+    """
     def __init__(self, addr, data=None, client=None):
         self.addr = addr
         self.client = client
@@ -49,6 +69,16 @@ class Pda:
 
 
 class Log:
+    """
+    Represents a log of Solana program events
+
+    Args:
+        data (dict): the log data
+        client (solana.rpc.api.Client): the Solana client
+
+    Attributes:
+        requests (list): the requests found in the log
+    """
     def __init__(self, data, client):
         self.data = data
         self.client = client
@@ -67,6 +97,15 @@ class Log:
 
 
 class RequestHandler:
+    """
+    Handles requests from the Solana program
+
+    Args:
+        req_queue (asyncio.Queue): the queue to put the requests in
+        rpc_url (str): the Solana RPC URL
+        subscribe_msg (dict): the message to send to the Solana RPC to subscribe to logs
+    
+    """
     def __init__(self, req_queue, rpc_url=RPC_URL, subscribe_msg=WS_SUBSCRIBE_MSG):
         self.req_queue = req_queue
         self.rpc_url = rpc_url
@@ -91,6 +130,12 @@ class RequestHandler:
 
 
 class ResponseHandler:
+    """
+    Handles responses to the Solana program
+
+    Args:
+        res_queue (asyncio.Queue): the queue to get the responses from
+    """
     def __init__(self, res_queue):
         self.res_queue = res_queue
 
@@ -103,6 +148,13 @@ class ResponseHandler:
                 print(f"[ResponseHandler.run] Error: {e}")
 
 class LLMRunner:
+    """
+    Runs the LLM (Language Learning Model) to respond to requests
+
+    Args:
+        req_queue (asyncio.Queue): the queue to get the requests from
+        res_queue (asyncio.Queue): the queue to put the responses in
+    """
     def __init__(self, req_queue, res_queue):
         self.req_queue = req_queue
         self.res_queue = res_queue
