@@ -10,12 +10,6 @@ pub struct DataChunk {
 }
 
 pub enum ProInstruction {
-    // WriteRequest {
-    //     data: String
-    // },
-    // WriteResponse {
-    //     data: String
-    // },
     WriteRequestChunk {
         data: DataChunk
     },
@@ -39,17 +33,11 @@ impl ProInstruction {
         msg!("payload: {:?}", payload);
 
         Ok(match variant {
-            // 0 => Self::WriteRequest {
-            //     data: payload.data,
-            // },
-            // 1 => Self::WriteResponse {
-            //     data: payload.data,
-            // },
-            2 => Self::WriteRequestChunk {
+            0 => Self::WriteRequestChunk {
                 data: payload.data,
 
             },
-            3 => Self::WriteResponseChunk {
+            1 => Self::WriteResponseChunk {
                 data: payload.data,
 
             },
