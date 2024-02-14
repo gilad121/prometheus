@@ -12,9 +12,32 @@ import * as fs from "fs";
 import * as path from "path";
 import { promisify } from 'util';
 import process from 'process';
+import * as forge from 'node-forge';
+import { generateKeyPair, encryptWithPublicKey, decryptWithPrivateKey } from "./encryption";
 
 const CHUNK_SZ = 100;
-  
+
+// const severPemPublicKey =
+// `-----BEGIN PUBLIC KEY-----
+// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnxJ5ef8lo1RKfZfZL4D5
+// FwxQzpHpgGvvH0vICj+CSjZRpr9OhzQfz983AXaDtW3h9dJQpFG4fDKTlkOppEYS
+// C1rV9ctCMXfjCTPtB0aLZqQFJ0uUT/j+AsZEx5lx7dyvIYrXzaM3lC26wL+JK/y4
+// 9KNUJOppeqKds6cwIF/wl/8u7IncyIUcNrvlGq+u5J549B75YCHZG8OIfMeErlIw
+// q9mh68z6m69AgRG49esIW2SW61fvblGeXdGac108b/cef/poz2R/pa2OuXLbNKrW
+// il2d+UgKkS9L9TOnRh2MMOj2fO/HDvjik20JP2deydu6kQeZIriv8oK8nd5lVq+8
+// 0wIDAQAB
+// -----END PUBLIC KEY-----`;
+// const serverEncryptPubkey = forge.pki.publicKeyFromPem(severPemPublicKey)
+const severPemPublicKey = fs.readFileSync('../offchain_server/server_encryption_keys/public_key.pem', 'utf8');
+const serverEncryptPubkey = forge.pki.publicKeyFromPem(severPemPublicKey);
+
+// should be imported from borsh but fails for some fucked reason
+// type StructType = {
+//   struct: {
+//       [key: string]: borsh.Schema;
+//   };
+// };
+
 /**
  * ProMsg (prometheus message) is a class that represents the message that is sent to the program
  * 
@@ -25,9 +48,14 @@ const CHUNK_SZ = 100;
  */
 class ProMsg {
   data!: string;
-  static schema: Map<any, any> = new Map([
-    [ProMsg, { kind: 'struct', fields: [['data', 'string']] }],
-  ]);
+  // static schema: Map<any, any> = new Map([
+  //   [ProMsg, { kind: 'struct', fields: [['data', 'string']] }],
+  // ]);
+  static schema = {
+    struct: {
+        data: 'string',
+    }
+  };
 
   constructor(fields: { data: string }) {
     if (fields) {
@@ -35,6 +63,7 @@ class ProMsg {
     }
   }
 }
+
 
 /**
  * DataChunk is a class that represents a chunk of data that is sent to the program
@@ -71,13 +100,20 @@ class DataChunk {
    * @returns {Buffer}
    */
   serialize(): Buffer {
-    const DataChunkSchema = new Map([
-      [DataChunk, { kind: 'struct', fields: [['index', 'u32'], ['totalChunks', 'u32'], ['size', 'u32'], ['data', ['u8']]] }],
-    ]);
+    const DataChunkSchema = {
+      struct: {
+          index: 'u32',
+          totalChunks: 'u32',
+          size: 'u32',
+          // data: 'u8[]',
+          data: { array: { type: 'u8' }}
+      }
+      // [DataChunk, { kind: 'struct', fields: [['index', 'u32'], ['totalChunks', 'u32'], ['size', 'u32'], ['data', ['u8']]] }],
+    };
     return Buffer.from(borsh.serialize(DataChunkSchema, this));
   }
 }
-  
+
 
 /**
  * @function createProInstructionData
@@ -149,22 +185,42 @@ function splitToChunks(data: Uint8Array, maxSize: number): DataChunk[] {
 /**
  * @function serializeData
  * @param {string} data
- * @returns {Buffer}
+ * @param {forge.pki.rsa.PublicKey} clientEncryptPubkey
+ * @returns {Buffer} - | total size | key size | client public key | serialized data |
  */
-function serializeData(data: string): Buffer {
+function serializeData(data: string, clientEncryptPubkey: forge.pki.rsa.PublicKey): Buffer {
+  // todo: move into more logical place to make this conversion
+  console.log("data = ", data);
+  // const binaryData = Uint8Array.from(Buffer.from(data, 'base64'));
+  // const dataString = binaryData.toString();
   const instructionData = new ProMsg({
     data: data
   });
 
+  console.log("4");
+  console.log(instructionData);
   const serializedData = Buffer.from(borsh.serialize(ProMsg.schema, instructionData));
-  const size = serializedData.length;
-  const sizeBuffer = Buffer.alloc(4);
-  sizeBuffer.writeUInt32LE(size);
-  const buffer = Buffer.concat([sizeBuffer, serializedData]);
+  console.log("5");
+
+  const pemPublicKey = forge.pki.publicKeyToPem(clientEncryptPubkey);
+  const publicKeyBuffer = Buffer.from(pemPublicKey);
+  console.log("6");
+
+  const publicKeySizeBuffer = Buffer.alloc(4);
+  publicKeySizeBuffer.writeUInt32LE(publicKeyBuffer.length);
+  console.log("7");
+
+  const totalSize = 4 + publicKeyBuffer.length + serializedData.length;
+  const totalSizeBuffer = Buffer.alloc(4);
+  console.log("totalSize = ", totalSize);
+  totalSizeBuffer.writeUInt32LE(totalSize);
+  console.log("8");
+
+  const buffer = Buffer.concat([totalSizeBuffer, publicKeySizeBuffer, publicKeyBuffer, serializedData]);
 
   return buffer;
 }
-  
+
 
 /**
  * @function sendMsg
@@ -174,13 +230,18 @@ function serializeData(data: string): Buffer {
  * @param {string} msg
  * @returns {Promise<void>}
  */
-async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey, msg: string): Promise<void> {    
+async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey,
+  clientEncryptPubkey: forge.pki.rsa.PublicKey, msg: string): Promise<void> {    
   const [pda, bumpSeed] = await PublicKey.findProgramAddressSync(
     [payer.publicKey.toBuffer()],
     programId
   );
-
-  const serializedData = serializeData(msg);
+  console.log("2");
+  const encryptedData = encryptWithPublicKey(serverEncryptPubkey, msg);
+  console.log("encryptedData = ", encryptedData);
+  const serializedData = serializeData(encryptedData, clientEncryptPubkey);
+  console.log("serializedData = ", serializedData);
+  console.log("nino 1");
   const chunks = splitToChunks(serializedData, CHUNK_SZ);
 
   for (const chunk of chunks) {
@@ -193,7 +254,8 @@ async function sendMsg(connection: Connection, payer: Keypair, programId: Public
  * @function readDataFromPDA
  * @returns {Promise<void>}
  */
-async function readDataFromPDA(connection: Connection, payer: Keypair, programId: PublicKey): Promise<void> {
+async function readDataFromPDA(connection: Connection, payer: Keypair, programId: PublicKey,
+  clientEncryptPrivkey: forge.pki.rsa.PrivateKey): Promise<void> {
   const [pda, bumpSeed] = await PublicKey.findProgramAddressSync(
       [payer.publicKey.toBuffer()],
       programId
@@ -204,9 +266,15 @@ async function readDataFromPDA(connection: Connection, payer: Keypair, programId
   if (pdaAccountInfo) {
     const pdaData = pdaAccountInfo.data;
     const msgLen = pdaData.readUInt32LE(0);
-    const msgContent = pdaData.slice(4, 4 + msgLen);
-    const proMsg = borsh.deserialize(ProMsg.schema, ProMsg, msgContent);
-    console.log("[readDataFromPDA] msg data: ", proMsg.data);
+    const msgContentEnc = pdaData.slice(4, 4 + msgLen);
+    const msgContent = decryptWithPrivateKey(clientEncryptPrivkey, msgContentEnc.toString());
+    const msgContentBuffer = Buffer.from(msgContent, 'utf-8');
+    const proMsg = borsh.deserialize(ProMsg.schema, msgContentBuffer) as ProMsg;
+    if (proMsg) {
+      console.log("[readDataFromPDA] msg data: ", proMsg.data);
+    } else {
+      console.log("[readDataFromPDA] Failed to deserialize ProMsg");
+    }
   } else {
     console.log("[readDataFromPDA] PDA account not found");
   }
@@ -227,13 +295,23 @@ function loadKeypairFromFile(filePath: string): Keypair {
 
   const programId = new PublicKey("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
 
+  // const { clientEncryptPubkey, clientEncryptPrivkey } = await generateKeyPair();
+  // const clientEncryptKeypair = await generateKeyPair();
+  const publicKeyPem = fs.readFileSync('client_encryption_keys/public_key.pem', 'utf8');
+  const clientEncryptPubkey = forge.pki.publicKeyFromPem(publicKeyPem);
+
+  const privateKeyPem = fs.readFileSync('client_encryption_keys/private_key.pem', 'utf8');
+  const clientEncryptPrivkey = forge.pki.privateKeyFromPem(privateKeyPem);
+
   const args = process.argv.slice(2);
   const action = args[0];
 
   if (action === 'write') {
-    await sendMsg(connection, payer, programId, "tell me shortly about iran");
+    console.log("1");
+    const msg = "tell me shortly about greece"
+    await sendMsg(connection, payer, programId, clientEncryptPubkey, msg);
   } else if (action === 'read') {
-    await readDataFromPDA(connection, payer, programId);
+    await readDataFromPDA(connection, payer, programId, clientEncryptPrivkey);
   } else {
     console.log('Invalid action');
   }

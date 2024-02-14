@@ -7,6 +7,7 @@ import borsh
 import base58
 from consts import *
 from utils import *
+from encryption import decrypt_with_server_private_key
 
 # TODO: new client for each request vs one client for all requests ?
 class PdaData:
@@ -21,22 +22,33 @@ class PdaData:
         data (str): the deserialized data
         serialized (bool): whether the data is serialized
     """
-    def __init__(self, data, serialized=True):
+    # request - encrypted, client key in data, decrypted with server key
+    # response - not encypted, client key used for encryption
+    def __init__(self, data, serialized=True, key=None):
         self._data = data
         self.serialized = serialized
+        # client pubkey, stored in request
+        self.key = key
 
     @property
     def data(self):
-        self.deserialize()
+        self.decrypt_and_deserialize()
         return self._data
 
-    def deserialize(self):
-        # | size (u32le) | data (bytes) |
+    def decrypt_and_deserialize(self):
+        # | total size (u32le) | key size (u32le) | key (pem, bytes) | enc data (bytes) |
         if self.serialized:
             size = int.from_bytes(self._data[:4], byteorder="little")
-            self._data = self._data[4:4 + size]
-            pro_msg = borsh.deserialize(PRO_MSG_SCHEMA, self._data)
-            self._data = pro_msg['data']
+            key_size = int.from_bytes(self._data[4:8], byteorder="little")
+            self.key = self._data[8:8 + key_size]
+            
+            serialized_data = self._data[8 + key_size:4 + size]
+            pro_msg = borsh.deserialize(PRO_MSG_SCHEMA, serialized_data)
+            enc_data = pro_msg['data']
+
+            self._data = decrypt_with_server_private_key(enc_data)
+            print("[decrypt_and_deserialize] self._data len = {}".format(len(self._data)))
+            
             self.serialized = False
 
 
@@ -51,11 +63,11 @@ class Pda:
         client (solana.rpc.api.Client): the Solana client
 
     """
-    def __init__(self, addr, data=None, client=None):
+    def __init__(self, addr, data=None, client=None, key=None):
         self.addr = addr
         self.client = client
-        # for response
-        self._data = PdaData(data, serialized=False) if data else None
+        # response
+        self._data = PdaData(data, serialized=False, key=key) if data else None
 
     # TODO: how can we make it async? get_account_info is sync
     @property
@@ -66,6 +78,10 @@ class Pda:
             account_info = self.client.get_account_info(pda_public_key)
             self._data = PdaData(account_info.value.data)
         return self._data.data
+    
+    @property
+    def key(self):
+        return self._data.key
 
 
 class Log:
@@ -165,7 +181,7 @@ class LLMRunner:
                 req = await self.req_queue.get()
                 # output = await asyncio.get_running_loop().run_in_executor(None, chat_with_gpt, req.data)
                 output = chat_with_gpt(req.data)
-                res = Pda(req.addr, data=output)
+                res = Pda(req.addr, data=output, key=req.key)
                 await self.res_queue.put(res)
             except Exception as e:
                 print(f"[LLMRunner.run] Error: {e}")

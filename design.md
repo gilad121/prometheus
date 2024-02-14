@@ -133,4 +133,37 @@ OFFCHAIN SERVER
         if we only use transaction to pda and no writing to pda - How do we integrate payments?
 
     do we really need a register api call? can just check if PDA exists in write_request (like now)
-$$$S
+
+# Docs
+~ lib.rs ~
+while account max size is 10mb, maximum permitted size of a reallocation in an inner instruction is 10kb,
+and in our case we create the pda through calling invoke_signed (cpi)
+hence if we want to allocate more than 10kb - we should call it directly (only from client?)
+
+create a register instruction?
+
+solana maximum transaction size is 1232 bytes
+
+possible to define somehow the "real size" of a pda (e.g. setting it somehow s.t. when reading the data you only
+get X out of Y bytes. This way we can only read the message and not the entire pda)?
+
+pda - | size (4) | msg (len) |
+
+# encryption
+client -> server: client ecrypts with server pubkey
+    - how gets sever pubkey?
+        - pulls from offchain server (db)
+        - pulls from "server pubkey pda"
+        - constant in client code
+server -> client: server encrypts with client pubkey
+    - how gets client key? pulls from server?
+        - pulls from offchain server (db)
+        - pulls from client's pda
+
+client reads server pubkey from const in code
+server reads client's pubkey from pda (| size | key | data |)
+
+python and typescript rsa doesn't work well together
+so we either do all enc stuff in python or ts
+python sounds hard because we need to run python in client
+ts means in python for each enc/dec we run enc.js
