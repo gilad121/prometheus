@@ -14,6 +14,7 @@ import { promisify } from 'util';
 import process from 'process';
 import * as forge from 'node-forge';
 import { generateKeyPair, encryptWithPublicKey, decryptWithPrivateKey } from "./encryption";
+import readline from 'readline';
 
 const CHUNK_SZ = 100;
 
@@ -194,13 +195,12 @@ function serializeData(data: string, clientEncryptPubkey: forge.pki.rsa.PublicKe
  * @param {string} msg
  * @returns {Promise<void>}
  */
-async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey,
-  clientEncryptPubkey: forge.pki.rsa.PublicKey, msg: string): Promise<void> {    
+async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey, msg: string): Promise<void> {    
   const [pda, bumpSeed] = await PublicKey.findProgramAddressSync(
     [payer.publicKey.toBuffer()],
     programId
   );
-
+  
   const encryptedData = encryptWithPublicKey(serverEncryptPubkey, msg);
   const serializedData = serializeData(encryptedData, clientEncryptPubkey);
   const chunks = splitToChunks(serializedData, CHUNK_SZ);
@@ -215,8 +215,7 @@ async function sendMsg(connection: Connection, payer: Keypair, programId: Public
  * @function readDataFromPDA
  * @returns {Promise<void>}
  */
-async function readDataFromPDA(connection: Connection, payer: Keypair, programId: PublicKey,
-  clientEncryptPrivkey: forge.pki.rsa.PrivateKey): Promise<void> {
+async function readDataFromPDA(connection: Connection, payer: Keypair, programId: PublicKey): Promise<void> {
   const [pda, bumpSeed] = await PublicKey.findProgramAddressSync(
       [payer.publicKey.toBuffer()],
       programId
@@ -231,7 +230,7 @@ async function readDataFromPDA(connection: Connection, payer: Keypair, programId
     const proMsg = borsh.deserialize(ProMsg.schema, msgContent) as ProMsg;
     const decryptedData = decryptWithPrivateKey(clientEncryptPrivkey, proMsg.data);
     if (proMsg) {
-      console.log("[readDataFromPDA] msg data: ", decryptedData);
+      console.log("prometheus: ", decryptedData);
     } else {
       console.log("[readDataFromPDA] Failed to deserialize ProMsg");
     }
@@ -248,29 +247,64 @@ function loadKeypairFromFile(filePath: string): Keypair {
 }
 
 
+async function subscribeToLogAndReadPDA(connection: Connection, payer: Keypair, programId: PublicKey) {
+  const [pda, bumpSeed] = await PublicKey.findProgramAddressSync(
+    [payer.publicKey.toBuffer()],
+    programId
+  );
+
+  const subscriptionId = connection.onLogs(pda, async (logs, context) => {
+    // console.log("[subscribeToLogAndReadPDA] received log");
+    const logMessage = `action:response pda:${pda.toBase58()}`;
+    if (logs.logs.some(log => log.includes(logMessage))) {
+      // console.log(`Detected log message for PDA ${pda.toBase58()}: ${logMessage}`);
+      await readDataFromPDA(connection, payer, programId);
+      await getMessageFromUser(connection, payer, programId);
+    }
+  }, 'confirmed');
+
+  // console.log(`Subscribed to logs with subscription ID: ${subscriptionId}`);
+}
+
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+
+async function askForMessage() {
+  return new Promise<string>((resolve) => {
+    rl.question('you: ', (message) => {
+      resolve(message);
+    });
+  });
+}
+
+
+async function getMessageFromUser(connection: Connection, payer: Keypair, programId: PublicKey) {
+    const message = await askForMessage();
+    if (message === 'exit') {
+      process.exit(0);
+    }
+    await sendMsg(connection, payer, programId, message);
+}
+
+
+const publicKeyPem = fs.readFileSync('client_encryption_keys/public_key.pem', 'utf8');
+const clientEncryptPubkey = forge.pki.publicKeyFromPem(publicKeyPem);
+
+const privateKeyPem = fs.readFileSync('client_encryption_keys/private_key.pem', 'utf8');
+const clientEncryptPrivkey = forge.pki.privateKeyFromPem(privateKeyPem);
+
 (async () => {
   const connection = new Connection("http://localhost:8899", "confirmed");
+  const programId = new PublicKey("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
+
   const keypairPath = '/home/gk/.config/solana/test1.json';
   const payer = loadKeypairFromFile(keypairPath);
 
-  const programId = new PublicKey("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
-
-  const publicKeyPem = fs.readFileSync('client_encryption_keys/public_key.pem', 'utf8');
-  const clientEncryptPubkey = forge.pki.publicKeyFromPem(publicKeyPem);
-
-  const privateKeyPem = fs.readFileSync('client_encryption_keys/private_key.pem', 'utf8');
-  const clientEncryptPrivkey = forge.pki.privateKeyFromPem(privateKeyPem);
-
-  const args = process.argv.slice(2);
-  const action = args[0];
-
-  if (action === 'write') {
-    const msg = "tell me shortly about argentina";
-    await sendMsg(connection, payer, programId, clientEncryptPubkey, msg);
-  } else if (action === 'read') {
-    await readDataFromPDA(connection, payer, programId, clientEncryptPrivkey);
-  } else {
-    console.log('Invalid action');
-  }
+  await getMessageFromUser(connection, payer, programId);
+  await subscribeToLogAndReadPDA(connection, payer, programId);
 
 })();
