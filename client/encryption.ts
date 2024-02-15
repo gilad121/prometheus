@@ -1,6 +1,10 @@
 import * as forge from 'node-forge';
+import * as fs from "fs";
 
-// Function to generate an RSA key pair
+// required because max lengths
+const ENC_BLOCK_SZ = 190;
+const DEC_BLOCK_SZ = 256;
+
 export function generateKeyPair(): Promise<forge.pki.rsa.KeyPair> {
   return new Promise((resolve, reject) => {
     forge.pki.rsa.generateKeyPair({ bits: 2048, workers: -1 }, (err, keypair) => {
@@ -13,70 +17,64 @@ export function generateKeyPair(): Promise<forge.pki.rsa.KeyPair> {
   });
 }
 
-// // Function to encrypt a message using an RSA public key
-// export function encryptWithPublicKey(publicKey: forge.pki.rsa.PublicKey, message: string): string {
-//   const encrypted = publicKey.encrypt(forge.util.encodeUtf8(message), 'RSA-OAEP');
-//   return forge.util.encode64(encrypted);
-// }
 
-// export function encryptWithPublicKey(publicKey: forge.pki.rsa.PublicKey, message: Buffer): Uint8Array {
 export function encryptWithPublicKey(publicKey: forge.pki.rsa.PublicKey, message: string): string {
-  const buffer = forge.util.createBuffer(message, 'utf8');
-  const encrypted = publicKey.encrypt(buffer.getBytes(), 'RSA-OAEP', {
+  const buffer = forge.util.createBuffer(message, 'utf8').getBytes();
+  let offset = 0;
+  let encryptedBlocks = [];
+
+  while (offset < buffer.length) {
+    let chunkSize = Math.min(ENC_BLOCK_SZ, buffer.length - offset);
+    let chunk = buffer.slice(offset, offset + chunkSize);
+    
+    let encryptedChunk = publicKey.encrypt(chunk, 'RSA-OAEP', {
       md: forge.md.sha256.create()
-  });
-  return forge.util.encode64(encrypted);
-  // return new Uint8Array(Buffer.from(encrypted));
-  // return encrypted;
+    });
+
+    encryptedBlocks.push(encryptedChunk);
+    offset += chunkSize;
+  }
+
+  let encryptedData = encryptedBlocks.join("");
+  return forge.util.encode64(encryptedData);
 }
 
-// Function to decrypt a message using an RSA private key
-// export function decryptWithPrivateKey(privateKey: forge.pki.rsa.PrivateKey, encryptedMessage: string): string {
-//   const decrypted = privateKey.decrypt(forge.util.decode64(encryptedMessage), 'RSA-OAEP');
-//   return forge.util.decodeUtf8(decrypted);
-// }
 
-export function decryptWithPrivateKey(privateKey: forge.pki.rsa.PrivateKey, encrypted: string): string {
-  const decrypted = privateKey.decrypt(forge.util.decode64(encrypted), 'RSA-OAEP', {
-  // const decrypted = privateKey.decrypt(encrypted, 'RSA-OAEP', {
+export function decryptWithPrivateKey(privateKey: forge.pki.rsa.PrivateKey, encryptedBase64: string): string {
+  const encryptedBytes = forge.util.decode64(encryptedBase64);
+
+  let decryptedMessage = "";
+
+  for (let start = 0; start < encryptedBytes.length; start += DEC_BLOCK_SZ) {
+    // handles the case where the end index exceeds the array's length
+    const encryptedBlock = encryptedBytes.slice(start, start + DEC_BLOCK_SZ);
+    const decryptedBlock = privateKey.decrypt(encryptedBlock, 'RSA-OAEP', {
       md: forge.md.sha256.create()
-  });
-  return forge.util.decodeUtf8(decrypted);
+    });
+
+    decryptedMessage += forge.util.decodeUtf8(decryptedBlock);
+  }
+
+  return decryptedMessage;
 }
 
-import * as fs from "fs";
 
-// Main function to demonstrate RSA encryption and decryption
 async function main() {
   try {
-    // Generate RSA key pair
     // const { publicKey, privateKey } = await generateKeyPair();
-    // load public key from file pubkey.pem
+    
     const publicKeyPem = fs.readFileSync('../offchain_server/server_encryption_keys/public_key.pem', 'utf8');
     const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
     const privateKeyPem = fs.readFileSync('../offchain_server/server_encryption_keys/private_key.pem', 'utf8');
     const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
 
-    // write code to save keypair to file
-    // const publicKeyPem = forge.pki.publicKeyToPem(publicKey);
-    // const privateKeyPem = forge.pki.privateKeyToPem(privateKey);
-    // console.log('Public Key:', publicKeyPem);
-    // console.log('Private Key:', privateKeyPem);
-
-    // save publicKeyPem to file named client_pubkey_test.pem
-    // fs.writeFileSync('client_pubkey_test.pem', publicKeyPem);
-    // fs.writeFileSync('client_privkey_test.pem', privateKeyPem);
-
     // Your message to encrypt
     const message = 'Hi bitches!!!';
-    // const messageBuffer = Buffer.from(message, 'utf-8');
 
-    // Encrypt the message using the public key
     const encryptedMessage = encryptWithPublicKey(publicKey, message);
     fs.writeFileSync('../offchain_server/server_encryption_keys/encrypted_message_test.txt', encryptedMessage);
     console.log('Encrypted Message:', encryptedMessage);
 
-    // Decrypt the message using the private key
     const decryptedMessage = decryptWithPrivateKey(privateKey, encryptedMessage.toString());
     console.log('Decrypted Message:', decryptedMessage);
   } catch (error) {
@@ -84,5 +82,4 @@ async function main() {
   }
 }
 
-// Run the main function
 // main();

@@ -36,7 +36,7 @@ class PdaData:
         return self._data
 
     def decrypt_and_deserialize(self):
-        # | total size (u32le) | key size (u32le) | key (pem, bytes) | enc data (bytes) |
+        # | total size (u32le) | key size (u32le) | key (pem, bytes) | serialized & encrypted data (bytes) |
         if self.serialized:
             size = int.from_bytes(self._data[:4], byteorder="little")
             key_size = int.from_bytes(self._data[4:8], byteorder="little")
@@ -47,8 +47,7 @@ class PdaData:
             enc_data = pro_msg['data']
 
             self._data = decrypt_with_server_private_key(enc_data)
-            print("[decrypt_and_deserialize] self._data len = {}".format(len(self._data)))
-            
+                
             self.serialized = False
 
 
@@ -69,7 +68,7 @@ class Pda:
         # response
         self._data = PdaData(data, serialized=False, key=key) if data else None
 
-    # TODO: how can we make it async? get_account_info is sync
+    # TODO: make it async? get_account_info is sync
     @property
     def data(self):
         if self._data is None:

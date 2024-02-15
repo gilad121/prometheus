@@ -29,9 +29,11 @@ const CHUNK_SZ = 100;
  */
 class ProMsg {
   data!: string;
-  static schema: Map<any, any> = new Map([
-    [ProMsg, { kind: 'struct', fields: [['data', 'string']] }],
-  ]);
+  static schema = {
+    struct: {
+        data: 'string',
+    }
+  };
 
   constructor(fields: { data: string }) {
     if (fields) {
@@ -39,6 +41,7 @@ class ProMsg {
     }
   }
 }
+
 
 /**
  * DataChunk is a class that represents a chunk of data that is sent to the program
@@ -75,9 +78,14 @@ class DataChunk {
    * @returns {Buffer}
    */
   serialize(): Buffer {
-    const DataChunkSchema = new Map([
-      [DataChunk, { kind: 'struct', fields: [['index', 'u32'], ['totalChunks', 'u32'], ['size', 'u32'], ['data', ['u8']]] }],
-    ]);
+    const DataChunkSchema = {
+      struct: {
+          index: 'u32',
+          totalChunks: 'u32',
+          size: 'u32',
+          data: { array: { type: 'u8' }}
+      }
+    };
     return Buffer.from(borsh.serialize(DataChunkSchema, this));
   }
 }
@@ -180,7 +188,7 @@ function serializeData(data: string): Buffer {
  */
 async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey, pda: PublicKey, encryptionPubkey: forge.pki.rsa.PublicKey, msg: string): Promise<void> {    
   const encryptedData = encryptWithPublicKey(encryptionPubkey, msg);
-  const serializedData = serializeData(msg);
+  const serializedData = serializeData(encryptedData);
   const chunks = splitToChunks(serializedData, CHUNK_SZ);
 
   for (const chunk of chunks) {
@@ -189,35 +197,13 @@ async function sendMsg(connection: Connection, payer: Keypair, programId: Public
 }
 
 
-/**
- * @function readDataFromPDA
- * @returns {Promise<void>}
- */
-async function readDataFromPDA(connection: Connection, payer: Keypair, programId: PublicKey): Promise<void> {
-  const [pda, bumpSeed] = await PublicKey.findProgramAddressSync(
-      [payer.publicKey.toBuffer()],
-      programId
-  );
-
-  const pdaAccountInfo = await connection.getAccountInfo(pda);
-
-  if (pdaAccountInfo) {
-    const pdaData = pdaAccountInfo.data;
-    const msgLen = pdaData.readUInt32LE(0);
-    const msgContent = pdaData.slice(4, 4 + msgLen);
-    const proMsg = borsh.deserialize(ProMsg.schema, ProMsg, msgContent);
-  } else {
-    console.log("[readDataFromPDA] PDA account not found");
-  }
-}
-
 function loadKeypairFromFile(filePath: string): Keypair {
   const secretKeyString = fs.readFileSync(filePath, { encoding: 'utf8' });
   const secretKey = Uint8Array.from(JSON.parse(secretKeyString)); 
   return Keypair.fromSecretKey(secretKey);
 }
 
-// rsa TODO: make sure parses correctly
+
 /**
  * Input file content - <pda>\n<keyfile>\n<data>
  * @function parseInputFile
