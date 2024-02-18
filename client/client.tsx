@@ -162,7 +162,7 @@ function splitToChunks(data: Uint8Array, maxSize: number): DataChunk[] {
  * @function serializeData
  * @param {string} data
  * @param {forge.pki.rsa.PublicKey} clientEncryptPubkey
- * @returns {Buffer} - | total size | key size | client public key | serialized data |
+ * @returns {Buffer} - | total size (4 bytes) | key size (4 bytes) | client public key | serialized data |
  */
 function serializeData(data: string, clientEncryptPubkey: forge.pki.rsa.PublicKey): Buffer {
   const instructionData = new ProMsg({

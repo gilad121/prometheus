@@ -161,7 +161,7 @@ function splitToChunks(data: Uint8Array, maxSize: number): DataChunk[] {
 /**
  * @function serializeData
  * @param {string} data
- * @returns {Buffer}
+ * @returns {Buffer} - | size (uint32le) | serializedData |
  */
 function serializeData(data: string): Buffer {
   const instructionData = new ProMsg({
