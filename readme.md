@@ -61,6 +61,7 @@ because node-forge is a little shit (bugs otherwise)
 # issues
 - pda size
 - chunk size
+- gpt max tokens
 - when to allocate pda - register instruction?
 
 

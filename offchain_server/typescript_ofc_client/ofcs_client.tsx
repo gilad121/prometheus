@@ -232,8 +232,8 @@ async function readPublicKeyFromPemFile(filePath: string): Promise<forge.pki.rsa
 
 
 (async () => {
-  const connection = new Connection("http://localhost:8899", "confirmed");
-  const keypairPath = '/home/gk/.config/solana/ofcs_id.json';
+  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+  const keypairPath = '/home/gk/.config/solana/ofcs_client.json';
   const payer = loadKeypairFromFile(keypairPath);
 
   const programId = new PublicKey("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");

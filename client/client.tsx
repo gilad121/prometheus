@@ -298,10 +298,10 @@ const privateKeyPem = fs.readFileSync('client_encryption_keys/private_key.pem', 
 const clientEncryptPrivkey = forge.pki.privateKeyFromPem(privateKeyPem);
 
 (async () => {
-  const connection = new Connection("http://localhost:8899", "confirmed");
+  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
   const programId = new PublicKey("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
 
-  const keypairPath = '/home/gk/.config/solana/test1.json';
+  const keypairPath = '/home/gk/.config/solana/client.json';
   const payer = loadKeypairFromFile(keypairPath);
 
   await getMessageFromUser(connection, payer, programId);
