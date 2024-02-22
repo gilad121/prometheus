@@ -7,80 +7,137 @@ import borsh
 import base58
 from consts import *
 from utils import *
-from encryption import decrypt_with_server_private_key
+from encryption import aes_decrypt, aes_encrypt, decrypt_with_server_private_key
 
-# TODO: new client for each request vs one client for all requests ?
-class PdaData:
-    """
-    Represents the data stored in a Solana Program Derived Address (PDA)
+# class PdaData:
+#     def __init__(self, data, serialized=True, key=None, iv=None):
+#         self._data = data
+#         self.serialized = serialized
+#         self.key = key
+#         self.iv = iv
+#         self.encrypted = False
 
-    Args:
-        data (bytes): the data stored in the PDA
-        serialized (bool): whether the data is serialized
+#     @property
+#     def data(self):
+#         self.decrypt_and_deserialize()
+#         return self._data
 
-    Attributes:
-        data (str): the deserialized data
-        serialized (bool): whether the data is serialized
-    """
-    # request - encrypted, client key in data, decrypted with server key
-    # response - not encypted, client key used for encryption
-    def __init__(self, data, serialized=True, key=None):
-        self._data = data
-        self.serialized = serialized
-        # client pubkey, stored in request
-        self.key = key
+#     def decrypt_and_deserialize(self):
+#         if self.serialized:
+#             key_size = int.from_bytes(self._data[0:4], byteorder="little")
+#             key = self._data[4:4 + key_size]
+#             self.key = decrypt_with_server_private_key(key)
 
-    @property
-    def data(self):
-        self.decrypt_and_deserialize()
-        return self._data
+#             iv_size = int.from_bytes(self._data[4 + key_size:4 + key_size + 4], byteorder="little")
+#             iv = self._data[4 + key_size + 4:4 + key_size + 4 + iv_size]
+#             self.iv = decrypt_with_server_private_key(iv)
 
-    def decrypt_and_deserialize(self):
-        # | total size (u32le) | key size (u32le) | key (pem, bytes) | serialized & encrypted data (bytes) |
-        if self.serialized:
-            size = int.from_bytes(self._data[:4], byteorder="little")
-            key_size = int.from_bytes(self._data[4:8], byteorder="little")
-            self.key = self._data[8:8 + key_size]
-            
-            serialized_data = self._data[8 + key_size:4 + size]
-            pro_msg = borsh.deserialize(PRO_MSG_SCHEMA, serialized_data)
-            enc_data = pro_msg['data']
+#             data_size = int.from_bytes(self._data[4 + key_size + 4 + iv_size:4 + key_size + 4 + iv_size + 4], byteorder="little")
+#             data = self._data[4 + key_size + 4 + iv_size + 4:4 + key_size + 4 + iv_size + 4 + data_size]
 
-            self._data = decrypt_with_server_private_key(enc_data)
-                
-            self.serialized = False
+#             pro_msg = borsh.deserialize(PRO_MSG_SCHEMA, data)
+#             self._data = aes_decrypt(pro_msg['data'], self.key, self.iv)
+
+#             self.serialized = False
+
+#     def encrypt(self):
+#         if not self.encrypted and self.key is not None:
+#             self._data = aes_encrypt(self._data, self.key, self.iv)
+#             self.encrypted = True
+
+# class Pda:
+#     """
+#     Represents a Program Derived Address (PDA) in Solana
+#     Used both for requests and responses
+
+#     Args:
+#         addr (str): the PDA address
+#         data (str): the data stored in the PDA
+#         client (solana.rpc.api.Client): the Solana client
+
+#     """
+#     def __init__(self, addr, data=None, client=None, key=None, iv=None):
+#         self.addr = addr
+#         self.client = client
+#         # response
+#         self._data = PdaData(data, serialized=False, key=key, iv=iv) if data else None
+
+#     # TODO: make it async? get_account_info is sync
+#     @property
+#     def data(self):
+#         if self._data is None:
+#             debug_print("[Pda.data], addr = {}".format(self.addr))
+#             pda_public_key = solana.rpc.api.Pubkey(base58.b58decode(self.addr))
+#             account_info = self.client.get_account_info(pda_public_key)
+#             self._data = PdaData(account_info.value.data)
+#         return self._data.data
+    
+#     @property
+#     def key(self):
+#         if self._data is None:
+#             return None
+#         return self._data.key
+    
+#     @property
+#     def iv(self):
+#         if self._data is None:
+#             return None
+#         return self._data.iv
+    
+#     def encrypt(self):
+#         if self._data is not None:
+#             self._data.encrypt()
 
 
 class Pda:
-    """
-    Represents a Program Derived Address (PDA) in Solana
-    Used both for requests and responses
-
-    Args:
-        addr (str): the PDA address
-        data (str): the data stored in the PDA
-        client (solana.rpc.api.Client): the Solana client
-
-    """
-    def __init__(self, addr, data=None, client=None, key=None):
+    def __init__(self, addr, client=None, data=None, serialized=True, key=None, iv=None):
         self.addr = addr
         self.client = client
-        # response
-        self._data = PdaData(data, serialized=False, key=key) if data else None
+        self._data = data
+        self.serialized = serialized
+        self.key = key
+        self.iv = iv
 
-    # TODO: make it async? get_account_info is sync
     @property
     def data(self):
-        if self._data is None:
+        if self._data is None and self.client is not None:
             debug_print("[Pda.data], addr = {}".format(self.addr))
+
             pda_public_key = solana.rpc.api.Pubkey(base58.b58decode(self.addr))
             account_info = self.client.get_account_info(pda_public_key)
-            self._data = PdaData(account_info.value.data)
-        return self._data.data
+            self._data = account_info.value.data
+
+            self.deserialize()
+            self.decrypt()
+        
+        return self._data
     
-    @property
-    def key(self):
-        return self._data.key
+    def deserialize(self):
+        if self.serialized:
+            key_size = int.from_bytes(self._data[0:4], byteorder="little")
+            key = self._data[4:4 + key_size]
+            self.key = decrypt_with_server_private_key(key)
+
+            iv_size = int.from_bytes(self._data[4 + key_size:4 + key_size + 4], byteorder="little")
+            iv = self._data[4 + key_size + 4:4 + key_size + 4 + iv_size]
+            self.iv = decrypt_with_server_private_key(iv)
+
+            data_size = int.from_bytes(self._data[4 + key_size + 4 + iv_size:4 + key_size + 4 + iv_size + 4], byteorder="little")
+            data = self._data[4 + key_size + 4 + iv_size + 4:4 + key_size + 4 + iv_size + 4 + data_size]
+
+            pro_msg = borsh.deserialize(PRO_MSG_SCHEMA, data)
+            self._data = pro_msg['data']
+
+            self.serialized = False
+
+    def decrypt(self):
+        if self.key and self.iv:
+            self._data = aes_decrypt(self._data, self.key, self.iv)
+
+    def encrypt(self):
+        if self.key and self.iv:
+            self._data = aes_encrypt(self._data, self.key, self.iv)
+            self.encrypted = True
 
 
 class Log:
@@ -180,7 +237,7 @@ class LLMRunner:
                 req = await self.req_queue.get()
                 # output = await asyncio.get_running_loop().run_in_executor(None, chat_with_gpt, req.data)
                 output = chat_with_gpt(req.data)
-                res = Pda(req.addr, data=output, key=req.key)
+                res = Pda(req.addr, data=output, serialized=False, key=req.key, iv=req.iv)
                 await self.res_queue.put(res)
             except Exception as e:
                 print(f"[LLMRunner.run] Error: {e}")
@@ -194,6 +251,7 @@ async def main():
     response_handler = ResponseHandler(res_queue)
     llm_runner = LLMRunner(req_queue, res_queue)
 
+    print("Prometheus is listening bitches")
     await asyncio.gather(
         request_handler.run(),
         response_handler.run(),

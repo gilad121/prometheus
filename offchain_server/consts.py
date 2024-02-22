@@ -1,6 +1,8 @@
 import borsh
 import os
 
+debug_mode = True
+
 PROGRAM_ID = "HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej"
 
 SOLANA_ENDPOINT = "https://api.devnet.solana.com"
@@ -25,8 +27,9 @@ PRO_MSG_SCHEMA = borsh.schema({
 })
 
 GPT_API_KEY = os.getenv('CHATGPT_API_KEY')
+# TODO: set to some chosen value
 GPT_MAX_TOKENS = 1000
 
 OFCS_CLIENT_PATH = "typescript_ofc_client/ofcs_client.js"
 
-debug_mode = True
+SERVER_PRIVKEY_FILE_PATH = "server_encryption_keys/private_key.pem"

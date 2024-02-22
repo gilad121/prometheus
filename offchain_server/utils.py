@@ -4,9 +4,11 @@ import tempfile
 from openai import OpenAI
 from consts import *
 
+
 def debug_print(*args, **kwargs):
     if debug_mode:
         print(*args, **kwargs)
+
 
 async def send_response(res):
     """
@@ -14,15 +16,12 @@ async def send_response(res):
     Creates a file, writes the pda address and data, runs the node client (file used for inputs)
     """
     with tempfile.NamedTemporaryFile(delete=True) as input_file:
-        with tempfile.NamedTemporaryFile(delete=True) as key_file:
-            # rsa TODO: encode? decode?
-            key_file.write(res.key)
-            key_file.flush()
+        res.encrypt()
 
-            input_file.write(f"{res.addr}\n{key_file.name}\n{res.data}".encode())
-            input_file.flush()
-
-            await run_node_client(input_file.name)
+        input_file.write(f"{res.addr}\n{res.data}".encode())
+        input_file.flush()
+        
+        await run_node_client(input_file.name)
 
 
 async def run_node_client(file_path):
@@ -43,8 +42,7 @@ def chat_with_gpt(prompt="", model="gpt-3.5-turbo", temperature=0.75, max_tokens
     """
     Sends query to chatgpt through it's api
     """
-    debug_print("[chat_with_gpt]")
-    debug_print("prompt = {}".format(prompt))
+    debug_print("request to gpt: {}".format(prompt))
     if prompt == "":
         raise ValueError("Empty prompt")
     client = OpenAI(api_key=GPT_API_KEY)
@@ -60,7 +58,5 @@ def chat_with_gpt(prompt="", model="gpt-3.5-turbo", temperature=0.75, max_tokens
         max_tokens=max_tokens,
     )   
     content = chat_completion.choices[0].message.content
-    debug_print("[chat_with_gpt] gpt response: {}".format(content))
+    debug_print("response from gpt: {}".format(content))
     return content
-
-

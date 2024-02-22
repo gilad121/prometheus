@@ -14,8 +14,6 @@ import { promisify } from 'util';
 import process from 'process';
 import * as forge from 'node-forge';
 import { promises as fsPromises } from 'fs';
-import { generateKeyPair, encryptWithPublicKey, decryptWithPrivateKey } from "./encryption";
-
 
 const CHUNK_SZ = 100;
 
@@ -186,9 +184,8 @@ function serializeData(data: string): Buffer {
  * @param {string} msg
  * @returns {Promise<void>}
  */
-async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey, pda: PublicKey, encryptionPubkey: forge.pki.rsa.PublicKey, msg: string): Promise<void> {    
-  const encryptedData = encryptWithPublicKey(encryptionPubkey, msg);
-  const serializedData = serializeData(encryptedData);
+async function sendMsg(connection: Connection, payer: Keypair, programId: PublicKey, pda: PublicKey, msg: string): Promise<void> {    
+  const serializedData = serializeData(msg);
   const chunks = splitToChunks(serializedData, CHUNK_SZ);
 
   for (const chunk of chunks) {
@@ -211,16 +208,10 @@ function loadKeypairFromFile(filePath: string): Keypair {
  * @returns {string[]}
  */
 function parseInputFile(filePath: string): string[] {
-  const fileContent = fs.readFileSync(filePath, 'utf8').split('\n');
-  
-  // Extract the <pda> and <key> by removing the first two lines
-  const pda = fileContent.shift() || '';
-  const key = fileContent.shift() || '';
-  
-  // The rest of the fileContent array is the <data>, join it back into a single string
+  const fileContent = fs.readFileSync(filePath, 'utf8').split('\n');  
+  const pda = fileContent.shift() || '';  
   const data = fileContent.join('\n');
-  
-  return [pda, key, data];
+  return [pda, data];
 }
 
 
@@ -238,23 +229,19 @@ async function readPublicKeyFromPemFile(filePath: string): Promise<forge.pki.rsa
 
   const programId = new PublicKey("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
 
-  // file content - <pda>\n<keyfile>\n<data>
-  if (process.argv.length >= 3) {
+  if (process.argv.length >= 2) {
     const filePath = process.argv[2];
     const fileContent = parseInputFile(filePath);
-    const pda = new PublicKey(fileContent[0]);
-    
-    const encryptionPubkey = await readPublicKeyFromPemFile(fileContent[1]);
 
-    const data = fileContent[2];
+    const pda = new PublicKey(fileContent[0]);
+    const data = fileContent[1];
 
     console.log("pda: ", pda.toBase58());
     console.log("data: ", data);
-    await sendMsg(connection, payer, programId, pda, encryptionPubkey, data);
+    
+    await sendMsg(connection, payer, programId, pda, data);
   } else {
     console.log("Usage: node ofcs_client.js <path to file>");
     process.exit(1);
   }
 })();
-
-
