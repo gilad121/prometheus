@@ -9,86 +9,6 @@ from consts import *
 from utils import *
 from encryption import aes_decrypt, aes_encrypt, decrypt_with_server_private_key
 
-# class PdaData:
-#     def __init__(self, data, serialized=True, key=None, iv=None):
-#         self._data = data
-#         self.serialized = serialized
-#         self.key = key
-#         self.iv = iv
-#         self.encrypted = False
-
-#     @property
-#     def data(self):
-#         self.decrypt_and_deserialize()
-#         return self._data
-
-#     def decrypt_and_deserialize(self):
-#         if self.serialized:
-#             key_size = int.from_bytes(self._data[0:4], byteorder="little")
-#             key = self._data[4:4 + key_size]
-#             self.key = decrypt_with_server_private_key(key)
-
-#             iv_size = int.from_bytes(self._data[4 + key_size:4 + key_size + 4], byteorder="little")
-#             iv = self._data[4 + key_size + 4:4 + key_size + 4 + iv_size]
-#             self.iv = decrypt_with_server_private_key(iv)
-
-#             data_size = int.from_bytes(self._data[4 + key_size + 4 + iv_size:4 + key_size + 4 + iv_size + 4], byteorder="little")
-#             data = self._data[4 + key_size + 4 + iv_size + 4:4 + key_size + 4 + iv_size + 4 + data_size]
-
-#             pro_msg = borsh.deserialize(PRO_MSG_SCHEMA, data)
-#             self._data = aes_decrypt(pro_msg['data'], self.key, self.iv)
-
-#             self.serialized = False
-
-#     def encrypt(self):
-#         if not self.encrypted and self.key is not None:
-#             self._data = aes_encrypt(self._data, self.key, self.iv)
-#             self.encrypted = True
-
-# class Pda:
-#     """
-#     Represents a Program Derived Address (PDA) in Solana
-#     Used both for requests and responses
-
-#     Args:
-#         addr (str): the PDA address
-#         data (str): the data stored in the PDA
-#         client (solana.rpc.api.Client): the Solana client
-
-#     """
-#     def __init__(self, addr, data=None, client=None, key=None, iv=None):
-#         self.addr = addr
-#         self.client = client
-#         # response
-#         self._data = PdaData(data, serialized=False, key=key, iv=iv) if data else None
-
-#     # TODO: make it async? get_account_info is sync
-#     @property
-#     def data(self):
-#         if self._data is None:
-#             debug_print("[Pda.data], addr = {}".format(self.addr))
-#             pda_public_key = solana.rpc.api.Pubkey(base58.b58decode(self.addr))
-#             account_info = self.client.get_account_info(pda_public_key)
-#             self._data = PdaData(account_info.value.data)
-#         return self._data.data
-    
-#     @property
-#     def key(self):
-#         if self._data is None:
-#             return None
-#         return self._data.key
-    
-#     @property
-#     def iv(self):
-#         if self._data is None:
-#             return None
-#         return self._data.iv
-    
-#     def encrypt(self):
-#         if self._data is not None:
-#             self._data.encrypt()
-
-
 class Pda:
     def __init__(self, addr, client=None, data=None, serialized=True, key=None, iv=None):
         self.addr = addr
@@ -111,20 +31,25 @@ class Pda:
             self.decrypt()
         
         return self._data
-    
+
     def deserialize(self):
         if self.serialized:
-            key_size = int.from_bytes(self._data[0:4], byteorder="little")
-            key = self._data[4:4 + key_size]
-            self.key = decrypt_with_server_private_key(key)
+            encrypted_key_iv_size = int.from_bytes(self._data[0:4], byteorder="little")
+            encrypted_key_iv = self._data[4:4 + encrypted_key_iv_size]
 
-            iv_size = int.from_bytes(self._data[4 + key_size:4 + key_size + 4], byteorder="little")
-            iv = self._data[4 + key_size + 4:4 + key_size + 4 + iv_size]
-            self.iv = decrypt_with_server_private_key(iv)
+            decrypted_key_iv = decrypt_with_server_private_key(encrypted_key_iv)
 
-            data_size = int.from_bytes(self._data[4 + key_size + 4 + iv_size:4 + key_size + 4 + iv_size + 4], byteorder="little")
-            data = self._data[4 + key_size + 4 + iv_size + 4:4 + key_size + 4 + iv_size + 4 + data_size]
+            key = decrypted_key_iv[:AES_KEY_SIZE]
+            iv = decrypted_key_iv[AES_KEY_SIZE:AES_KEY_SIZE + AES_IV_SIZE]
 
+            self.key = key
+            self.iv = iv
+
+            data_size_start = 4 + encrypted_key_iv_size
+            data_size = int.from_bytes(self._data[data_size_start:data_size_start + 4], byteorder="little")
+            
+            data_start = data_size_start + 4
+            data = self._data[data_start:data_start + data_size]
             pro_msg = borsh.deserialize(PRO_MSG_SCHEMA, data)
             self._data = pro_msg['data']
 

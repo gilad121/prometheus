@@ -25,12 +25,8 @@ struct ProInstructionPayload {
 
 impl ProInstruction {
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
-        msg!("[ProInstruction::unpack], input: {:?}", input);
         let (variant, rest) = input.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-        msg!("[ProInstruction::unpack] variant: {:?}", variant);
-        msg!("[ProInstruction::unpack] rest: {:?}", rest);
         let payload = ProInstructionPayload::try_from_slice(rest).unwrap();
-        msg!("payload: {:?}", payload);
 
         Ok(match variant {
             0 => Self::WriteRequestChunk {

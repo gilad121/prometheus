@@ -15,7 +15,7 @@ import process from 'process';
 import * as forge from 'node-forge';
 import { promises as fsPromises } from 'fs';
 
-const CHUNK_SZ = 100;
+const CHUNK_SZ = 900;
 
 /**
  * ProMsg (prometheus message) is a class that represents the message that is sent to the program
@@ -235,9 +235,6 @@ async function readPublicKeyFromPemFile(filePath: string): Promise<forge.pki.rsa
 
     const pda = new PublicKey(fileContent[0]);
     const data = fileContent[1];
-
-    console.log("pda: ", pda.toBase58());
-    console.log("data: ", data);
     
     await sendMsg(connection, payer, programId, pda, data);
   } else {

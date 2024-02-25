@@ -18,7 +18,7 @@ use crate::instructions::DataChunk;
 
 declare_id!("HXbL7syDgGn989Sffe7JNS92VSweeAJYgAoW3B8VdNej");
 
-const MAX_CHUNK_SZ: usize = 100;
+const MAX_CHUNK_SZ: usize = 900;
 const PDA_ACCOUNT_SZ: usize = 5 * 1024;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -51,7 +51,6 @@ fn write_request_chunk(
     accounts: &[AccountInfo],
     chunk: DataChunk,
 ) -> ProgramResult {
-    msg!("[write_request_chunk] chunk: {:?}", chunk);
     process_chunk(program_id, accounts, &chunk, true)?;
     if chunk.index == (chunk.total_chunks - 1) {
         msg!("action:request pda:{}", accounts[1].key);
@@ -64,7 +63,6 @@ fn write_response_chunk(
     accounts: &[AccountInfo],
     chunk: DataChunk,
 ) -> ProgramResult {
-    msg!("[write_response_chunk] chunk: {:?}", chunk);
     process_chunk(program_id, accounts, &chunk, false)?;
     if chunk.index == (chunk.total_chunks - 1) {
         msg!("action:response pda:{}", accounts[1].key);

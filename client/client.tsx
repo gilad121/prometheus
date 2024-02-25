@@ -16,7 +16,7 @@ import * as forge from 'node-forge';
 import { generateKeyPair, encryptWithPublicKey, decryptWithPrivateKey } from "./encryption";
 import readline from 'readline';
 
-const CHUNK_SZ = 100;
+const CHUNK_SZ = 900;
 
 const severPemPublicKey = fs.readFileSync('server_encryption_keys/public_key.pem', 'utf8');
 const serverEncryptPubkey = forge.pki.publicKeyFromPem(severPemPublicKey);
@@ -239,8 +239,7 @@ async function readDataFromPDA(connection: Connection, payer: Keypair, programId
     const pdaData = pdaAccountInfo.data;
     const msgLen = pdaData.readUInt32LE(0);
     const msgContent = pdaData.slice(4, 4 + msgLen);
-    // print len of msgContent
-    console.log("msgContent length: ", msgLen);
+
     const proMsg = borsh.deserialize(ProMsg.schema, msgContent) as ProMsg;
     const decryptedData = decryptWithPrivateKey(clientEncryptPrivkey, proMsg.data);
     if (proMsg) {

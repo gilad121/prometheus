@@ -33,3 +33,6 @@ GPT_MAX_TOKENS = 1000
 OFCS_CLIENT_PATH = "typescript_ofc_client/ofcs_client.js"
 
 SERVER_PRIVKEY_FILE_PATH = "server_encryption_keys/private_key.pem"
+
+AES_KEY_SIZE = 32
+AES_IV_SIZE = 16
